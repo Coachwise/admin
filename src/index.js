@@ -1,4 +1,6 @@
-import 'dotenv/config';
+// Must come first: it validates and cleans DATABASE_URL before db.js constructs
+// the Prisma client and before the session store opens a pool.
+import { DATABASE_URL, ADMIN_COOKIE_SECRET, PORT } from './env.js';
 import AdminJS from 'adminjs';
 import AdminJSExpress from '@adminjs/express';
 import * as AdminJSPrisma from '@adminjs/prisma';
@@ -21,9 +23,6 @@ AdminJS.registerAdapter({
   Resource: PrismaResource,
 });
 
-const { DATABASE_URL, ADMIN_COOKIE_SECRET, PORT = 8100 } = process.env;
-
-if (!DATABASE_URL) throw new Error('DATABASE_URL is not set (copy .env.example to .env).');
 if (!ADMIN_COOKIE_SECRET) throw new Error('ADMIN_COOKIE_SECRET is not set.');
 
 const admin = new AdminJS({

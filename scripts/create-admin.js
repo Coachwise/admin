@@ -4,7 +4,7 @@
 //
 // There is no self-signup: an admin can only exist because someone with shell
 // access on the server made one. Only SUPERADMIN may action payouts.
-import 'dotenv/config';
+import '../src/env.js';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/db.js';
 

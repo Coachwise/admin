@@ -75,6 +75,17 @@ jobs:
             exit 1
           }
 
+      # `docker run --env-file` does not strip quotes, but dotenv does — so a
+      # quoted DATABASE_URL works in dev and then dies in the container with
+      # `getaddrinfo EAI_AGAIN base`. src/env.js strips them; this keeps it that way.
+      - name: A quoted DATABASE_URL still works (--env-file does not strip quotes)
+        env:
+          DATABASE_URL: '"postgres://coachwise:passwd@localhost:5432/coachwise"'
+        run: |
+          npm run migrate --silent | grep -q "Already up to date" || {
+            echo "::error::a quoted DATABASE_URL was not handled — see src/env.js"; exit 1; }
+          echo "quoted DATABASE_URL handled"
+
       # Bootstrap seeds an empty admin_users, and must then leave it alone —
       # otherwise every deploy would reset the password back to the CI secret.
       - name: Bootstrap creates the first admin, then stops

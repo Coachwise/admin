@@ -5,7 +5,7 @@
 // `schema_migrations`: two tools sharing one version table is how a migration
 // history gets corrupted. Prisma is never used to migrate here — only to
 // introspect (`npm run pull`).
-import 'dotenv/config';
+import { DATABASE_URL } from '../src/env.js';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,7 @@ import pg from 'pg';
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
 
-const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+const client = new pg.Client({ connectionString: DATABASE_URL });
 await client.connect();
 
 await client.query(`

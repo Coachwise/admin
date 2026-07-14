@@ -9,7 +9,7 @@
 //
 // Rotating a password afterwards is a panel job (edit the admin_users row), or
 // `create-admin.js`, which DOES overwrite on purpose.
-import 'dotenv/config';
+import '../src/env.js';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/db.js';
 
