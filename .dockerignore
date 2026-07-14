@@ -1,0 +1,33 @@
+# Without this, `COPY . .` sweeps the whole working directory into the image and
+# the build silently depends on whatever is lying around on the developer's
+# machine. Concretely, all of these were shipping:
+#
+#   .env         dev DATABASE_URL and the placeholder ADMIN_COOKIE_SECRET, baked
+#                into a production image. dotenv doesn't override real env vars
+#                so it "worked" — but any deploy that lost its --env-file would
+#                quietly fall back to a cookie secret that is public knowledge.
+#   node_modules the HOST's modules, copied over the ones npm ci had just
+#                installed, native Prisma engine and all.
+#   .adminjs     AdminJS's build cache. This one hid a real bug: the image had a
+#                writable .adminjs only because the developer had run the app
+#                locally, so it worked here and EACCES'd in CI, where the
+#                checkout is clean.
+#   .git         the entire history, for no reason.
+
+.env
+.env.*
+!.env.example
+
+node_modules
+.adminjs
+
+.git
+.gitignore
+.github
+
+README.md
+Dockerfile
+.dockerignore
+
+npm-debug.log*
+*.log

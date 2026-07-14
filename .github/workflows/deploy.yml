@@ -100,21 +100,52 @@ jobs:
             exit 1
           }
 
-      # Boot it. Catches the failures that only appear at runtime: a bad import,
-      # a Prisma engine that won't load, AdminJS failing to build its resources
-      # (which is how the composite-primary-key bug would have surfaced).
-      - name: Boot smoke test
+      # Boot the IMAGE, not bare node.
+      #
+      # Two whole classes of bug exist only inside the container: it runs as a
+      # non-root user, and it carries Prisma's native engine. `node src/index.js`
+      # on the runner has write access everywhere and would never see either.
+      #
+      # AdminJS bundles its components in initialize(), which buildRouter calls at
+      # startup — so a container that cannot write to its own working directory
+      # dies here, on its own, with no request needed. That is what shipped:
+      # `EACCES: permission denied, mkdir '.adminjs'`.
+      - name: Image smoke test
         run: |
-          node src/index.js &
-          PID=$!
-          for i in $(seq 1 20); do
-            curl -sf http://localhost:8100/health > /dev/null && break
-            sleep 1
-          done
-          curl -sf http://localhost:8100/health || { echo "::error::/health never answered"; kill $PID; exit 1; }
-          curl -sf http://localhost:8100/admin/login > /dev/null || { echo "::error::login page did not render"; kill $PID; exit 1; }
-          echo "booted, /health and /admin/login both answer"
-          kill $PID
+          docker build -t admin-smoke .
+          docker run -d --name smoke --network host \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e ADMIN_COOKIE_SECRET="$ADMIN_COOKIE_SECRET" \
+            -e PORT=8100 \
+            admin-smoke
+
+          sleep 10
+
+          if [ "$(docker inspect -f '{{.State.Running}}' smoke)" != "true" ]; then
+            echo "::error::the container died on startup"
+            docker logs smoke
+            exit 1
+          fi
+
+          curl -sf http://localhost:8100/health >/dev/null || {
+            echo "::error::/health never answered"; docker logs smoke; exit 1; }
+
+          curl -sf http://localhost:8100/admin/login >/dev/null || {
+            echo "::error::the panel did not render"; docker logs smoke; exit 1; }
+
+          echo "image boots as non-root, bundles, and serves the panel"
+          docker rm -f smoke
+
+      # The image must not carry the developer's working directory. .env in
+      # particular was being baked in — dev credentials and a placeholder cookie
+      # secret, in a production image.
+      - name: Image carries no dev artefacts
+        run: |
+          if docker run --rm admin-smoke sh -c 'ls -a /app' | grep -qE '^\.env$|^\.git$'; then
+            echo "::error::.env or .git is inside the image — check .dockerignore"
+            exit 1
+          fi
+          echo "no .env, no .git"
 
   build:
     name: Build and push image

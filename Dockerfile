@@ -41,6 +41,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 
 COPY --from=build --chown=node:node /app /app
 
+# AdminJS bundles its frontend components into ./.adminjs on initialize(), which
+# means the working directory has to be WRITABLE by the user we drop to.
+#
+# `COPY --chown` only sets ownership on the content it copies — /app itself was
+# created by WORKDIR above and stays root-owned, so `node` could read every file
+# and still not create a single new one. The failure is deferred and easy to miss:
+# the process starts, /health answers, and it only dies on the first request that
+# actually reaches the panel, with `EACCES: permission denied, mkdir '.adminjs'`.
+RUN mkdir -p /app/.adminjs && chown -R node:node /app
+
 USER node
 ENV NODE_ENV=production
 EXPOSE 8100
