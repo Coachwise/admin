@@ -114,10 +114,11 @@ app.use(
 );
 
 // Unauthenticated on purpose, and deliberately says nothing about the database:
-// the deploy polls this to confirm the version it just shipped is the version
-// actually serving, so it has to answer before anyone has logged in.
+// the deploy polls this to confirm the panel came back up, so it has to answer
+// before anyone has logged in. There is no version here — the panel ships on
+// every push to main, and the deploy checks the container's image instead.
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', version: process.env.APP_VERSION ?? 'dev' });
+  res.json({ status: 'ok' });
 });
 
 app.use(admin.options.rootPath, router);

@@ -2,8 +2,8 @@ name: Build and Deploy
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -59,18 +59,33 @@ jobs:
         run: npx prisma generate
 
       # The real gate. This is the same script the deploy runs against
-      # production, applied here to an empty database — so a migration that only
-      # works because of leftover state on the dev box fails here instead of there.
+      # production, applied here to an EMPTY database — so a migration that only
+      # works because of leftover state on the dev box (uuid-ossp, say) fails
+      # here instead of there.
       - name: Apply migrations to a fresh database
         run: npm run migrate
 
-      # Re-running must be a no-op, because the deploy runs it on EVERY release.
+      # Re-running must be a no-op, because the deploy runs it on every release.
       - name: Migrations are idempotent
         run: |
           OUT=$(npm run migrate --silent)
           echo "$OUT"
           echo "$OUT" | grep -q "Already up to date" || {
             echo "::error::Re-running migrations was not a no-op — the deploy applies them on every release."
+            exit 1
+          }
+
+      # Bootstrap seeds an empty admin_users, and must then leave it alone —
+      # otherwise every deploy would reset the password back to the CI secret.
+      - name: Bootstrap creates the first admin, then stops
+        env:
+          ADMIN_BOOTSTRAP_EMAIL: ci@example.com
+          ADMIN_BOOTSTRAP_PASSWORD: ci-password-long-enough
+        run: |
+          npm run bootstrap-admin --silent | grep -q "Created first admin" || {
+            echo "::error::bootstrap did not create an admin on an empty table"; exit 1; }
+          npm run bootstrap-admin --silent | grep -q "already exist" || {
+            echo "::error::bootstrap did not no-op when an admin already existed — a deploy would reset the password."
             exit 1
           }
 
@@ -97,8 +112,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    outputs:
-      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout
@@ -107,19 +120,6 @@ jobs:
       - name: Set lowercase repository name
         run: |
           echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-
-      # Same rule as api/ and app/: a v1.2.0 tag builds 1.2.0; anything else is a
-      # pre-release build stamped with its commit. /health reports this.
-      - name: Compute version
-        id: version
-        run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          else
-            VERSION="0.0.0+${GITHUB_SHA::7}"
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version $VERSION"
 
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
@@ -133,11 +133,8 @@ jobs:
         with:
           context: .
           push: true
-          build-args: |
-            VERSION=${{ steps.version.outputs.version }}
           tags: |
             ghcr.io/${{ env.REPO_LC }}:latest
-            ghcr.io/${{ env.REPO_LC }}:${{ steps.version.outputs.version }}
             ghcr.io/${{ env.REPO_LC }}:${{ github.sha }}
 
   deploy:
@@ -152,18 +149,26 @@ jobs:
 
       - name: SSH and deploy
         uses: appleboy/ssh-action@v1
+        env:
+          # The first admin. Only used when admin_users is empty — see
+          # scripts/bootstrap-admin.js. Passed into the remote shell as env vars
+          # (below), never interpolated into the script text.
+          ADMIN_BOOTSTRAP_EMAIL: ${{ secrets.ADMIN_BOOTSTRAP_EMAIL }}
+          ADMIN_BOOTSTRAP_PASSWORD: ${{ secrets.ADMIN_BOOTSTRAP_PASSWORD }}
+          ADMIN_BOOTSTRAP_NAME: ${{ secrets.ADMIN_BOOTSTRAP_NAME }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: ADMIN_BOOTSTRAP_EMAIL,ADMIN_BOOTSTRAP_PASSWORD,ADMIN_BOOTSTRAP_NAME
           script: |
             set -e
 
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-            # Pin to the exact version built by this run, so a re-deploy can
-            # never pick up a different :latest.
-            IMAGE=ghcr.io/${{ env.REPO_LC }}:${{ needs.build.outputs.version }}
+            # Pin to the exact commit built by this run, so a re-deploy can never
+            # pick up a different :latest.
+            IMAGE=ghcr.io/${{ env.REPO_LC }}:${{ github.sha }}
             docker pull "$IMAGE"
 
             # DATABASE_URL and ADMIN_COOKIE_SECRET live on the server, next to
@@ -174,13 +179,26 @@ jobs:
               exit 1
             fi
 
-            # Migrations. Idempotent and tracked in admin_migrations, which is
-            # api's schema_migrations' business — the two never touch.
+            # Migrations. Idempotent, tracked in admin_migrations — which is none
+            # of api's schema_migrations' business; the two never touch.
             docker run --rm \
               --network host \
               --env-file /etc/coachwise/admin.env \
               "$IMAGE" \
               npm run migrate
+
+            # The first admin, if there isn't one yet. `-e VAR` with no `=value`
+            # passes the value through from the shell environment, so the
+            # password never appears in the process arguments — `ps` on the
+            # server would otherwise show it in full.
+            docker run --rm \
+              --network host \
+              --env-file /etc/coachwise/admin.env \
+              -e ADMIN_BOOTSTRAP_EMAIL \
+              -e ADMIN_BOOTSTRAP_PASSWORD \
+              -e ADMIN_BOOTSTRAP_NAME \
+              "$IMAGE" \
+              npm run bootstrap-admin
 
             docker stop coachwise-admin || true
             docker rm coachwise-admin || true
@@ -195,13 +213,19 @@ jobs:
             docker logout ghcr.io
             docker image prune -f
 
-            # Green only if the running panel reports the version we just shipped.
-            EXPECTED="${{ needs.build.outputs.version }}"
+            # Green only once the container we just started is both the image we
+            # built and actually answering.
+            RUNNING_IMAGE=$(docker inspect -f '{{.Config.Image}}' coachwise-admin)
+            if [ "$RUNNING_IMAGE" != "$IMAGE" ]; then
+              echo "Running image is $RUNNING_IMAGE, expected $IMAGE"
+              exit 1
+            fi
+
             for i in $(seq 1 15); do
-              RUNNING=$(curl -sf http://localhost:8100/health | grep -o '"version":"[^"]*"' | cut -d'"' -f4 || true)
-              [ "$RUNNING" = "$EXPECTED" ] && echo "Admin is running $RUNNING" && exit 0
+              curl -sf http://localhost:8100/health >/dev/null 2>&1 && \
+                echo "Admin is up on ${{ github.sha }}" && exit 0
               sleep 2
             done
-            echo "Admin did not come up on $EXPECTED (last seen: '${RUNNING:-none}')"
+            echo "Admin did not answer /health"
             docker logs --tail 50 coachwise-admin
             exit 1

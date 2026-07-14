@@ -41,11 +41,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 
 COPY --from=build --chown=node:node /app /app
 
-# Stamped by CI from the git tag; /health reports it, and the deploy refuses to
-# go green until the running container answers with the version it just shipped.
-ARG VERSION=dev
-ENV APP_VERSION=${VERSION}
-
 USER node
 ENV NODE_ENV=production
 EXPOSE 8100

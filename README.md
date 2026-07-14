@@ -31,44 +31,66 @@ i.e. drop — the database. `admin/` owns exactly two tables of its own, created
 plain SQL in `migrations/` and tracked in `admin_migrations`, deliberately
 separate from api's `schema_migrations`.
 
-## Production
+## Deploy
+
+**Push to `main`.** `.github/workflows/deploy.yml` checks it, builds a GHCR image
+pinned to the commit, then SSHes to the server, migrates, seeds the first admin
+if there isn't one, and restarts the container. It only goes green once the
+running container is the image that was just built *and* is answering `/health`.
 
 The image is built from the **committed** `prisma/schema.prisma` — the build runs
 `prisma generate`, never `db pull` and never `prisma migrate`. See the Dockerfile
 for why that matters.
 
-Deploy is the same shape as `api/`: build an image, run the migration once, then
-start the server.
+### Repository secrets
+
+| secret | what it's for |
+|---|---|
+| `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY` | the deploy SSH, same as the api repo |
+| `ADMIN_BOOTSTRAP_EMAIL` | login for the first admin |
+| `ADMIN_BOOTSTRAP_PASSWORD` | its password (min 10 chars) |
+| `ADMIN_BOOTSTRAP_NAME` | optional display name |
+
+`GITHUB_TOKEN` is provided automatically.
+
+The bootstrap secrets seed `admin_users` **only when it is empty**
+(`scripts/bootstrap-admin.js`). Every deploy runs it, and every deploy after the
+first does nothing — so changing your password in the panel sticks, rather than
+being silently reverted to the GitHub secret on the next release. Rotate the
+secret if you like; it won't take effect on an existing admin. To actually change
+a password, edit the row in the panel, or run `create-admin`, which overwrites on
+purpose.
+
+The password is handed to the container with `docker run -e VAR` (no `=value`),
+so it comes through the environment rather than the command line — otherwise
+`ps` on the server would print it in full.
+
+### One-time server setup
+
+The workflow fails loudly if this is missing.
 
 ```bash
-# 1. Apply admin's own migrations (creates admin_users + admin_audit_log).
-#    Idempotent and tracked in admin_migrations — safe to run on EVERY deploy;
-#    a second run just prints "Already up to date".
-docker run --rm --network host \
-  -e DATABASE_URL="$DATABASE_URL" \
-  ghcr.io/<org>/coachwise-admin:<tag> npm run migrate
-
-# 2. The server.
-docker run -d --name coachwise-admin --restart always --network host \
-  -e DATABASE_URL="$DATABASE_URL" \
-  -e ADMIN_COOKIE_SECRET="$ADMIN_COOKIE_SECRET" \
-  -e NODE_ENV=production \
-  -e PORT=8100 \
-  ghcr.io/<org>/coachwise-admin:<tag>
-
-# 3. ONCE, to create the first admin. There is no self-signup.
-docker exec -it coachwise-admin \
-  node scripts/create-admin.js you@example.com 'a-long-password' SUPERADMIN 'Your Name'
+# Runtime config lives on the server, next to api's config.yml — never in the
+# workflow, never on the docker command line.
+sudo mkdir -p /etc/coachwise
+sudo tee /etc/coachwise/admin.env >/dev/null <<EOF
+DATABASE_URL=postgres://coachwise:<password>@localhost:5432/coachwise
+ADMIN_COOKIE_SECRET=$(openssl rand -hex 32)
+PORT=8100
+EOF
+sudo chmod 600 /etc/coachwise/admin.env
 ```
 
-**It must be served over HTTPS.** In production the session cookie is `secure`,
-so a plain-HTTP deployment can log nobody in — the cookie is set and then never
-sent back, and the login page just bounces. Put it behind the reverse proxy with
-TLS, like any other public surface.
+`ADMIN_COOKIE_SECRET` must be **stable across restarts** — changing it logs
+everyone out.
 
-`ADMIN_COOKIE_SECRET` must be a long random string and must be **stable across
-restarts** — changing it invalidates every session. Generate one with
-`openssl rand -hex 32` and keep it with the other production secrets.
+### It must be served over HTTPS
+
+The session cookie is `secure` in production, so a plain-HTTP deployment can log
+**nobody** in: the cookie is set, never sent back, and the login page just bounces
+with no error. Terminate TLS at the reverse proxy and point it at `:8100`. The
+app sets `trust proxy`, so it will trust the proxy's `X-Forwarded-Proto` — without
+that it would refuse to set the cookie at all.
 
 ### After an api/ migration
 
