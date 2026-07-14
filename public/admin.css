@@ -1,0 +1,23 @@
+/* Coachwise overrides for the stock AdminJS chrome.
+ *
+ * Target the `adminjs_*` classes only. The `sc-*` classes alongside them are
+ * styled-components hashes — they change on every AdminJS build. */
+
+/* The login logo slot is sized for a wide wordmark (it renders at 200px). Ours
+   is a square tile, so it needs reining in. */
+.adminjs_Header.adminjs_H5 img {
+  max-height: 72px;
+  width: auto;
+}
+
+/* The stock astronaut/planet illustrations. */
+.adminjs_Illustration {
+  display: none;
+}
+
+/* Sidebar logo: same square-tile problem, smaller slot. */
+[class*='sidebar'] img,
+nav img {
+  max-height: 36px;
+  width: auto;
+}

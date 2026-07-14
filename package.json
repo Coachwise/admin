@@ -1,0 +1,29 @@
+{
+  "name": "coachwise-admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Coachwise admin panel — AdminJS over the Coachwise Postgres database.",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "pull": "prisma db pull && prisma generate",
+    "migrate": "node scripts/migrate.js",
+    "create-admin": "node scripts/create-admin.js"
+  },
+  "dependencies": {
+    "@adminjs/express": "^6.1.0",
+    "@adminjs/prisma": "^5.0.3",
+    "@prisma/client": "^5.22.0",
+    "adminjs": "^7.8.13",
+    "bcryptjs": "^2.4.3",
+    "connect-pg-simple": "^9.0.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-session": "^1.18.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  }
+}

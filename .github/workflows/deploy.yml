@@ -1,0 +1,207 @@
+name: Build and Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  # There is no test suite here — the panel is generated from the schema, so the
+  # things that actually break are the schema, the migrations and the boot. This
+  # job exercises exactly those, against a throwaway Postgres.
+  #
+  # Like api/, this MUST stay on a GitHub-hosted runner: it needs a disposable
+  # database. On a self-hosted runner it would find the server's own Postgres on
+  # localhost:5432 and migrate the production database.
+  test:
+    name: Check
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: coachwise
+          POSTGRES_PASSWORD: passwd
+          POSTGRES_DB: coachwise
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U coachwise"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://coachwise:passwd@localhost:5432/coachwise
+      ADMIN_COOKIE_SECRET: ci-secret-not-used-anywhere-real
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # The committed schema must be valid and must generate. This is the whole
+      # type surface of the app — if it's stale or malformed, nothing else works.
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # The real gate. This is the same script the deploy runs against
+      # production, applied here to an empty database — so a migration that only
+      # works because of leftover state on the dev box fails here instead of there.
+      - name: Apply migrations to a fresh database
+        run: npm run migrate
+
+      # Re-running must be a no-op, because the deploy runs it on EVERY release.
+      - name: Migrations are idempotent
+        run: |
+          OUT=$(npm run migrate --silent)
+          echo "$OUT"
+          echo "$OUT" | grep -q "Already up to date" || {
+            echo "::error::Re-running migrations was not a no-op — the deploy applies them on every release."
+            exit 1
+          }
+
+      # Boot it. Catches the failures that only appear at runtime: a bad import,
+      # a Prisma engine that won't load, AdminJS failing to build its resources
+      # (which is how the composite-primary-key bug would have surfaced).
+      - name: Boot smoke test
+        run: |
+          node src/index.js &
+          PID=$!
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8100/health > /dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:8100/health || { echo "::error::/health never answered"; kill $PID; exit 1; }
+          curl -sf http://localhost:8100/admin/login > /dev/null || { echo "::error::login page did not render"; kill $PID; exit 1; }
+          echo "booted, /health and /admin/login both answer"
+          kill $PID
+
+  build:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set lowercase repository name
+        run: |
+          echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      # Same rule as api/ and app/: a v1.2.0 tag builds 1.2.0; anything else is a
+      # pre-release build stamped with its commit. /health reports this.
+      - name: Compute version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.0.0+${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version $VERSION"
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+          tags: |
+            ghcr.io/${{ env.REPO_LC }}:latest
+            ghcr.io/${{ env.REPO_LC }}:${{ steps.version.outputs.version }}
+            ghcr.io/${{ env.REPO_LC }}:${{ github.sha }}
+
+  deploy:
+    name: Deploy to server
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Set lowercase repository name
+        run: |
+          echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: SSH and deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            # Pin to the exact version built by this run, so a re-deploy can
+            # never pick up a different :latest.
+            IMAGE=ghcr.io/${{ env.REPO_LC }}:${{ needs.build.outputs.version }}
+            docker pull "$IMAGE"
+
+            # DATABASE_URL and ADMIN_COOKIE_SECRET live on the server, next to
+            # api's config.yml — never in the workflow, never on the docker
+            # command line where `ps` would show them. See the README.
+            if [ ! -f /etc/coachwise/admin.env ]; then
+              echo "/etc/coachwise/admin.env is missing — see admin/README.md"
+              exit 1
+            fi
+
+            # Migrations. Idempotent and tracked in admin_migrations, which is
+            # api's schema_migrations' business — the two never touch.
+            docker run --rm \
+              --network host \
+              --env-file /etc/coachwise/admin.env \
+              "$IMAGE" \
+              npm run migrate
+
+            docker stop coachwise-admin || true
+            docker rm coachwise-admin || true
+            docker run -d \
+              --name coachwise-admin \
+              --restart always \
+              --network host \
+              --env-file /etc/coachwise/admin.env \
+              -e NODE_ENV=production \
+              "$IMAGE"
+
+            docker logout ghcr.io
+            docker image prune -f
+
+            # Green only if the running panel reports the version we just shipped.
+            EXPECTED="${{ needs.build.outputs.version }}"
+            for i in $(seq 1 15); do
+              RUNNING=$(curl -sf http://localhost:8100/health | grep -o '"version":"[^"]*"' | cut -d'"' -f4 || true)
+              [ "$RUNNING" = "$EXPECTED" ] && echo "Admin is running $RUNNING" && exit 0
+              sleep 2
+            done
+            echo "Admin did not come up on $EXPECTED (last seen: '${RUNNING:-none}')"
+            docker logs --tail 50 coachwise-admin
+            exit 1

@@ -1,0 +1,881 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model achievements {
+  id                                   String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  athlete_id                           String   @db.Uuid
+  coach_id                             String   @db.Uuid
+  title                                String   @db.VarChar(128)
+  description                          String?
+  created_at                           DateTime @default(now()) @db.Timestamp(6)
+  users_achievements_athlete_idTousers users    @relation("achievements_athlete_idTousers", fields: [athlete_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "achievements_athlete_fk")
+  users_achievements_coach_idTousers   users    @relation("achievements_coach_idTousers", fields: [coach_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "achievements_coach_fk")
+
+  @@index([athlete_id, created_at(sort: Desc)], map: "idx_achievements_athlete")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model chat_members {
+  chat_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  role       String   @db.VarChar(16)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  chats      chats    @relation(fields: [chat_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([chat_id, user_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model chats {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type         String         @db.VarChar(16)
+  name         String?
+  owner_id     String         @db.Uuid
+  chat_key     String?        @unique(map: "uniq_direct_key")
+  created_at   DateTime       @default(now()) @db.Timestamp(6)
+  chat_members chat_members[]
+  users        users          @relation(fields: [owner_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  messages     messages[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model coach_applications {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id          String   @db.Uuid
+  full_name        String   @db.VarChar(255)
+  specialty        String   @db.VarChar(128)
+  experience_years Int      @default(0)
+  certifications   String
+  bio              String?
+  website          String?
+  instagram        String?
+  status           String   @default("PENDING") @db.VarChar(16)
+  decision_token   String   @db.VarChar(64)
+  review_note      String?
+  created_at       DateTime @default(now()) @db.Timestamp(6)
+  updated_at       DateTime @default(now()) @db.Timestamp(6)
+  users            users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "coach_applications_user_fk")
+
+  @@index([status], map: "idx_coach_applications_status")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_coach_applications_user")
+}
+
+model coach_package_plans {
+  package_id     String         @db.Uuid
+  plan_id        String         @db.Uuid
+  created_at     DateTime       @default(now()) @db.Timestamp(6)
+  coach_packages coach_packages @relation(fields: [package_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "coach_package_plans_package_fk")
+  plans          plans          @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "coach_package_plans_plan_fk")
+
+  @@id([package_id, plan_id])
+  @@index([plan_id], map: "idx_coach_package_plans_plan")
+}
+
+model coach_package_prices {
+  package_id     String         @db.Uuid
+  currency       String         @db.VarChar(3)
+  amount         BigInt
+  created_at     DateTime       @default(now()) @db.Timestamp(6)
+  updated_at     DateTime       @default(now()) @db.Timestamp(6)
+  currencies     currencies     @relation(fields: [currency], references: [code], onDelete: NoAction, onUpdate: NoAction, map: "coach_package_prices_currency_fk")
+  coach_packages coach_packages @relation(fields: [package_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "coach_package_prices_package_fk")
+
+  @@id([package_id, currency])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model coach_packages {
+  id                    String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  coach_id              String                  @db.Uuid
+  name                  String                  @db.VarChar(128)
+  description           String?
+  price_monthly         Int?
+  price_annual          Int?
+  price_one_time        Int?
+  trial_days            Int                     @default(0)
+  check_in_frequency    String?                 @db.VarChar(32)
+  video_access          Boolean                 @default(false)
+  nutrition_guides      Boolean                 @default(false)
+  custom_features       Json                    @default("[]")
+  is_active             Boolean                 @default(true)
+  popular               Boolean                 @default(false)
+  created_at            DateTime                @default(now()) @db.Timestamp(6)
+  updated_at            DateTime                @default(now()) @db.Timestamp(6)
+  currency              String                  @default("IRR") @db.VarChar(3)
+  billing_type          String                  @default("SUBSCRIPTION") @db.VarChar(16)
+  coach_package_plans   coach_package_plans[]
+  coach_package_prices  coach_package_prices[]
+  users                 users                   @relation(fields: [coach_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "coach_packages_coach_fk")
+  orders                orders[]
+  package_subscriptions package_subscriptions[]
+  plan_assignees        plan_assignees[]
+
+  @@index([coach_id, created_at(sort: Desc)], map: "idx_coach_packages_coach")
+}
+
+model coaches {
+  user_id     String    @id @db.Uuid
+  specialties sports[]
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
+  updated_at  DateTime? @default(now()) @db.Timestamp(6)
+  users       users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model connection_requests {
+  id                                            String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  requester_id                                  String        @db.Uuid
+  addressee_id                                  String        @db.Uuid
+  status                                        String        @default("PENDING") @db.VarChar(16)
+  created_at                                    DateTime      @default(now()) @db.Timestamp(6)
+  updated_at                                    DateTime      @default(now()) @db.Timestamp(6)
+  users_connection_requests_addressee_idTousers users         @relation("connection_requests_addressee_idTousers", fields: [addressee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "connection_requests_addressee_fk")
+  users_connection_requests_requester_idTousers users         @relation("connection_requests_requester_idTousers", fields: [requester_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "connection_requests_requester_fk")
+  connections                                   connections[]
+
+  @@unique([requester_id, addressee_id], map: "connection_requests_unique")
+  @@index([addressee_id, status], map: "idx_connection_requests_addressee")
+  @@index([requester_id, status], map: "idx_connection_requests_requester")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model connections {
+  user1_id                          String               @db.Uuid
+  user2_id                          String               @db.Uuid
+  created_at                        DateTime             @default(now()) @db.Timestamp(6)
+  connection_request_id             String?              @db.Uuid
+  connection_requests               connection_requests? @relation(fields: [connection_request_id], references: [id], onUpdate: NoAction)
+  users_connections_user1_idTousers users                @relation("connections_user1_idTousers", fields: [user1_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "connections_user1_fk")
+  users_connections_user2_idTousers users                @relation("connections_user2_idTousers", fields: [user2_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "connections_user2_fk")
+
+  @@id([user1_id, user2_id])
+  @@index([user2_id], map: "idx_connections_user2")
+}
+
+model currencies {
+  code                 String                 @id @db.VarChar(3)
+  name                 String                 @db.VarChar(64)
+  symbol               String                 @db.VarChar(8)
+  decimals             Int                    @default(0) @db.SmallInt
+  enabled              Boolean                @default(true)
+  created_at           DateTime               @default(now()) @db.Timestamp(6)
+  coach_package_prices coach_package_prices[]
+  payout_accounts      payout_accounts[]
+  pro_prices           pro_prices?
+}
+
+model duration_tiers {
+  months           Int @id
+  discount_percent Int @default(0)
+}
+
+model exercise_categories {
+  id         String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  slug       String               @unique @db.VarChar(96)
+  name_i18n  Json                 @default("{}")
+  sport_type exercise_sport_type?
+  sort_order Int                  @default(0)
+  created_at DateTime?            @default(now()) @db.Timestamp(6)
+  updated_at DateTime?            @default(now()) @db.Timestamp(6)
+  exercises  exercises[]
+
+  @@index([sport_type], map: "idx_exercise_categories_sport_type")
+}
+
+model exercises {
+  id                  String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id             String?                  @db.Uuid
+  name                String                   @db.VarChar(128)
+  description         String
+  public              Boolean?                 @default(false)
+  created_at          DateTime?                @default(now()) @db.Timestamp(6)
+  updated_at          DateTime?                @default(now()) @db.Timestamp(6)
+  media_id            String?                  @db.Uuid
+  sport_type          exercise_sport_type      @default(GENERAL)
+  slug                String?                  @unique @db.VarChar(96)
+  name_i18n           Json                     @default("{}")
+  description_i18n    Json                     @default("{}")
+  category_id         String?                  @db.Uuid
+  search_vector       Unsupported("tsvector")? @default(dbgenerated("to_tsvector('simple'::regconfig, (((((((((((((COALESCE(name, ''::character varying))::text || ' '::text) || COALESCE(description, ''::text)) || ' '::text) || COALESCE((name_i18n ->> 'en'::text), ''::text)) || ' '::text) || COALESCE((name_i18n ->> 'fa'::text), ''::text)) || ' '::text) || COALESCE((description_i18n ->> 'en'::text), ''::text)) || ' '::text) || COALESCE((description_i18n ->> 'fa'::text), ''::text)) || ' '::text) || COALESCE(replace((slug)::text, '-'::text, ' '::text), ''::text)))"))
+  exercise_categories exercise_categories?     @relation(fields: [category_id], references: [id], onUpdate: NoAction)
+  media               media?                   @relation(fields: [media_id], references: [id], onUpdate: NoAction)
+  users               users?                   @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_user")
+  plan_exercises      plan_exercises[]
+  sets                sets[]
+  test_items          test_items[]
+  workout_logs        workout_logs[]
+
+  @@index([category_id], map: "idx_exercises_category_id")
+  @@index([media_id], map: "idx_exercises_media_id")
+  @@index([search_vector], map: "idx_exercises_search_vector", type: Gin)
+  @@index([sport_type], map: "idx_exercises_sport_type")
+}
+
+model feed_comments {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  feed_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  body       String
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  feeds      feeds    @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([feed_id], map: "idx_feed_comments_feed_id")
+}
+
+model feed_likes {
+  feed_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  feeds      feeds    @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([feed_id, user_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model feed_media {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  feed_id       String   @db.Uuid
+  kind          String   @db.VarChar(16)
+  url           String
+  thumbnail_url String?
+  order_index   Int      @default(0)
+  created_at    DateTime @default(now()) @db.Timestamp(6)
+  feeds         feeds    @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([feed_id], map: "idx_feed_media_feed_id")
+}
+
+model feed_tags {
+  feed_id String @db.Uuid
+  tag_id  String @db.Uuid
+  feeds   feeds  @relation(fields: [feed_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tags    tags   @relation(fields: [tag_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([feed_id, tag_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model feeds {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String          @db.Uuid
+  body          String?
+  location      String?
+  visibility    String          @default("PUBLIC") @db.VarChar(16)
+  created_at    DateTime        @default(now()) @db.Timestamp(6)
+  updated_at    DateTime        @default(now()) @db.Timestamp(6)
+  feed_comments feed_comments[]
+  feed_likes    feed_likes[]
+  feed_media    feed_media[]
+  feed_tags     feed_tags[]
+  users         users           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, created_at(sort: Desc)], map: "idx_feeds_user_created_at")
+  @@index([visibility, created_at(sort: Desc)], map: "idx_feeds_visibility_created_at")
+}
+
+model media {
+  id         String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String?     @db.Uuid
+  url        String      @unique
+  filename   String
+  created_at DateTime?   @default(now()) @db.Timestamp(6)
+  size_bytes BigInt      @default(0)
+  exercises  exercises[]
+  messages   messages[]
+  users      users[]
+}
+
+model messages {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sender_id  String    @db.Uuid
+  body       String
+  media_id   String?   @db.Uuid
+  read_at    DateTime? @db.Timestamp(6)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
+  chat_id    String    @db.Uuid
+  chats      chats     @relation(fields: [chat_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_messages_chat")
+  media      media?    @relation(fields: [media_id], references: [id], onUpdate: NoAction)
+  users      users     @relation(fields: [sender_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([chat_id, created_at(sort: Desc)], map: "idx_messages_chat_created_at")
+}
+
+model notifications {
+  id                                  String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id                             String   @db.Uuid
+  actor_id                            String?  @db.Uuid
+  type                                String   @db.VarChar(48)
+  entity_type                         String?  @db.VarChar(32)
+  entity_id                           String?  @db.Uuid
+  data                                Json     @default("{}")
+  read                                Boolean  @default(false)
+  created_at                          DateTime @default(now()) @db.Timestamp(6)
+  users_notifications_actor_idTousers users?   @relation("notifications_actor_idTousers", fields: [actor_id], references: [id], onUpdate: NoAction, map: "notifications_actor_fk")
+  users_notifications_user_idTousers  users    @relation("notifications_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "notifications_user_fk")
+
+  @@index([user_id, read, created_at(sort: Desc)], map: "idx_notifications_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model orders {
+  id                           String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  buyer_id                     String          @db.Uuid
+  kind                         String          @db.VarChar(16)
+  currency                     String          @db.VarChar(3)
+  coach_id                     String?         @db.Uuid
+  package_id                   String?         @db.Uuid
+  duration_months              Int
+  unit_amount                  BigInt
+  subtotal                     BigInt
+  discount_amount              BigInt          @default(0)
+  fee_amount                   BigInt          @default(0)
+  total                        BigInt
+  status                       String          @default("PENDING") @db.VarChar(16)
+  created_at                   DateTime        @default(now()) @db.Timestamp(6)
+  updated_at                   DateTime        @default(now()) @db.Timestamp(6)
+  users_orders_buyer_idTousers users           @relation("orders_buyer_idTousers", fields: [buyer_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "orders_buyer_fk")
+  users_orders_coach_idTousers users?          @relation("orders_coach_idTousers", fields: [coach_id], references: [id], onUpdate: NoAction, map: "orders_coach_fk")
+  coach_packages               coach_packages? @relation(fields: [package_id], references: [id], onUpdate: NoAction, map: "orders_package_fk")
+  payments                     payments[]
+
+  @@index([buyer_id, created_at(sort: Desc)], map: "idx_orders_buyer")
+  @@index([coach_id, created_at(sort: Desc)], map: "idx_orders_coach")
+}
+
+model otps {
+  id          String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id     String       @db.Uuid
+  code        Int
+  created_at  DateTime?    @default(now()) @db.Timestamp(6)
+  expired_at  DateTime     @default(dbgenerated("(now() + '00:10:00'::interval)")) @db.Timestamptz(6)
+  is_verified Boolean      @default(false)
+  perpose     otp_perposes @default(AUTH)
+  email       String?
+  users       users        @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model package_subscriptions {
+  id                                           String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  package_id                                   String         @db.Uuid
+  coach_id                                     String         @db.Uuid
+  client_id                                    String         @db.Uuid
+  status                                       String         @default("ACTIVE") @db.VarChar(16)
+  created_at                                   DateTime       @default(now()) @db.Timestamp(6)
+  updated_at                                   DateTime       @default(now()) @db.Timestamp(6)
+  users_package_subscriptions_client_idTousers users          @relation("package_subscriptions_client_idTousers", fields: [client_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "package_subscriptions_client_fk")
+  users_package_subscriptions_coach_idTousers  users          @relation("package_subscriptions_coach_idTousers", fields: [coach_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "package_subscriptions_coach_fk")
+  coach_packages                               coach_packages @relation(fields: [package_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "package_subscriptions_package_fk")
+
+  @@unique([package_id, client_id], map: "package_subscriptions_unique")
+  @@index([client_id, status], map: "idx_package_subscriptions_client")
+  @@index([coach_id, status], map: "idx_package_subscriptions_coach")
+}
+
+model param_logs {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  value      Decimal   @db.Decimal(10, 2)
+  note       String?
+  user_id    String    @db.Uuid
+  param_id   String    @db.Uuid
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  params     params    @relation(fields: [param_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_param")
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user")
+}
+
+model params {
+  id               String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name             String       @unique
+  description      String?
+  unit             units        @default(COUNT)
+  side             sides        @default(GENERAL)
+  available_sports sports[]
+  updated_at       DateTime?    @default(now()) @db.Timestamp(6)
+  created_at       DateTime?    @default(now()) @db.Timestamp(6)
+  param_logs       param_logs[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payments {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  order_id     String?  @db.Uuid
+  user_id      String   @db.Uuid
+  wallet_id    String   @db.Uuid
+  amount       BigInt
+  currency     String   @db.VarChar(3)
+  provider     String   @default("STUB") @db.VarChar(24)
+  provider_ref String?  @db.VarChar(128)
+  status       String   @default("PENDING") @db.VarChar(16)
+  created_at   DateTime @default(now()) @db.Timestamp(6)
+  updated_at   DateTime @default(now()) @db.Timestamp(6)
+  orders       orders?  @relation(fields: [order_id], references: [id], onUpdate: NoAction, map: "payments_order_fk")
+  users        users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "payments_user_fk")
+  wallets      wallets  @relation(fields: [wallet_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "payments_wallet_fk")
+
+  @@index([user_id, created_at(sort: Desc)], map: "idx_payments_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payout_accounts {
+  id                String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id           String     @db.Uuid
+  currency          String     @db.VarChar(3)
+  method            String     @db.VarChar(16)
+  account_holder    String?
+  card_number       String?
+  iban              String?
+  bank_name         String?
+  swift             String?
+  stripe_account_id String?
+  status            String     @default("UNVERIFIED") @db.VarChar(16)
+  created_at        DateTime   @default(now()) @db.Timestamp(6)
+  updated_at        DateTime   @default(now()) @db.Timestamp(6)
+  currencies        currencies @relation(fields: [currency], references: [code], onDelete: NoAction, onUpdate: NoAction, map: "payout_accounts_currency_fk")
+  users             users      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "payout_accounts_user_fk")
+
+  @@unique([user_id, currency], map: "payout_accounts_user_currency_uniq")
+  @@index([user_id], map: "idx_payout_accounts_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payouts {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  coach_id   String   @db.Uuid
+  wallet_id  String   @db.Uuid
+  amount     BigInt
+  currency   String   @db.VarChar(3)
+  status     String   @default("REQUESTED") @db.VarChar(16)
+  note       String?
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  users      users    @relation(fields: [coach_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "payouts_coach_fk")
+  wallets    wallets  @relation(fields: [wallet_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "payouts_wallet_fk")
+
+  @@index([coach_id, created_at(sort: Desc)], map: "idx_payouts_coach")
+}
+
+model plan_assignees {
+  id                                   String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  plan_id                              String          @db.Uuid
+  user_id                              String          @db.Uuid
+  assigner                             String          @db.Uuid
+  created_at                           DateTime?       @default(now()) @db.Timestamp(6)
+  package_id                           String?         @db.Uuid
+  users_plan_assignees_assignerTousers users           @relation("plan_assignees_assignerTousers", fields: [assigner], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_assigner")
+  plans                                plans           @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_plan")
+  users_plan_assignees_user_idTousers  users           @relation("plan_assignees_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user")
+  coach_packages                       coach_packages? @relation(fields: [package_id], references: [id], onUpdate: NoAction, map: "plan_assignees_package_fk")
+
+  @@unique([plan_id, user_id], map: "plan_assignees_plan_user_unique")
+  @@index([package_id], map: "idx_plan_assignees_package")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model plan_exercises {
+  id             String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  exercise_id    String    @db.Uuid
+  plan_id        String    @db.Uuid
+  exercise_order Int
+  rest_time      BigInt
+  created_at     DateTime? @default(now()) @db.Timestamp(6)
+  intensity      Int       @default(5)
+  exercises      exercises @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_exercise")
+  plans          plans     @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_plan")
+}
+
+model plan_schedules {
+  id            String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String               @db.Uuid
+  plan_id       String               @db.Uuid
+  scheduled_for DateTime             @db.Timestamptz(6)
+  status        plan_schedule_status @default(ACTIVE)
+  notes         String?
+  created_at    DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime             @default(now()) @db.Timestamptz(6)
+  plans         plans                @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users         users                @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([plan_id], map: "idx_plan_schedules_plan_id")
+  @@index([scheduled_for], map: "idx_plan_schedules_scheduled_for")
+  @@index([status], map: "idx_plan_schedules_status")
+  @@index([user_id], map: "idx_plan_schedules_user_id")
+}
+
+model plans {
+  id                  String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id             String                   @db.Uuid
+  public              Boolean?                 @default(false)
+  name                String                   @db.VarChar(128)
+  created_at          DateTime?                @default(now()) @db.Timestamp(6)
+  updated_at          DateTime?                @default(now()) @db.Timestamp(6)
+  search_vector       Unsupported("tsvector")? @default(dbgenerated("to_tsvector('simple'::regconfig, (COALESCE(name, ''::character varying))::text)"))
+  coach_package_plans coach_package_plans[]
+  plan_assignees      plan_assignees[]
+  plan_exercises      plan_exercises[]
+  plan_schedules      plan_schedules[]
+  users               users                    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user")
+  sessions            sessions[]
+
+  @@index([search_vector], map: "idx_plans_search_vector", type: Gin)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model platform_settings {
+  id                  Int      @id @default(1) @db.SmallInt
+  coach_fee_percent   Int      @default(15)
+  escrow_hold_days    Int      @default(0)
+  default_currency    String   @default("IRR") @db.VarChar(3)
+  updated_at          DateTime @default(now()) @db.Timestamp(6)
+  one_time_pro_months Int      @default(1)
+}
+
+model pro_prices {
+  currency       String     @id @db.VarChar(3)
+  monthly_amount BigInt
+  updated_at     DateTime   @default(now()) @db.Timestamp(6)
+  currencies     currencies @relation(fields: [currency], references: [code], onDelete: NoAction, onUpdate: NoAction, map: "pro_prices_currency_fk")
+}
+
+model profile_achievement_layouts {
+  user_id    String   @id @db.Uuid
+  layout     Json     @default("{\"order\": [], \"hidden\": []}")
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "profile_achievement_layouts_user_fk")
+}
+
+model schema_migrations {
+  version BigInt  @id
+  dirty   Boolean
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model sessions {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id      String         @db.Uuid
+  session_type String         @db.VarChar(20)
+  plan_id      String?        @db.Uuid
+  status       String         @default("ACTIVE") @db.VarChar(20)
+  started_at   DateTime       @default(now()) @db.Timestamp(6)
+  ended_at     DateTime?      @db.Timestamp(6)
+  notes        String?
+  created_at   DateTime       @default(now()) @db.Timestamp(6)
+  updated_at   DateTime       @default(now()) @db.Timestamp(6)
+  intensity    Int?
+  quality      Int?
+  plans        plans?         @relation(fields: [plan_id], references: [id], onUpdate: NoAction)
+  users        users          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workout_logs workout_logs[]
+
+  @@index([started_at], map: "idx_sessions_started_at")
+  @@index([status], map: "idx_sessions_status")
+  @@index([user_id], map: "idx_sessions_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model sets {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name        String?   @db.VarChar(128)
+  exercise_id String    @db.Uuid
+  set_number  Int
+  rest_time   BigInt
+  rep_count   Int?
+  duration    BigInt?
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
+  updated_at  DateTime? @default(now()) @db.Timestamp(6)
+  exercises   exercises @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_exercise")
+}
+
+model tags {
+  id                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String                   @db.VarChar(50)
+  normalized_name   String                   @unique @db.VarChar(50)
+  is_system         Boolean?                 @default(false)
+  created_at        DateTime                 @default(now()) @db.Timestamp(6)
+  search_vector     Unsupported("tsvector")? @default(dbgenerated("to_tsvector('english'::regconfig, (COALESCE(name, ''::character varying))::text)"))
+  feed_tags         feed_tags[]
+  workout_logs_tags workout_logs_tags[]
+
+  @@index([is_system], map: "idx_tags_is_system")
+  @@index([normalized_name], map: "idx_tags_normalized_name")
+  @@index([search_vector], map: "idx_tags_search_vector", type: Gin)
+}
+
+model test_items {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  test_id      String    @db.Uuid
+  exercise_id  String    @db.Uuid
+  target_value Decimal?  @db.Decimal
+  item_order   Int       @default(0)
+  created_at   DateTime  @default(now()) @db.Timestamp(6)
+  track_reps   Boolean   @default(false)
+  track_weight Boolean   @default(false)
+  track_time   Boolean   @default(false)
+  exercises    exercises @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "test_items_exercise_fk")
+  tests        tests     @relation(fields: [test_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "test_items_test_fk")
+
+  @@index([test_id], map: "idx_test_items_test")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model test_requests {
+  id                                    String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  test_id                               String?        @db.Uuid
+  coach_id                              String?        @db.Uuid
+  athlete_id                            String         @db.Uuid
+  status                                String         @default("PENDING") @db.VarChar(16)
+  note                                  String?
+  submitted_at                          DateTime?      @db.Timestamp(6)
+  seen_at                               DateTime?      @db.Timestamp(6)
+  created_at                            DateTime       @default(now()) @db.Timestamp(6)
+  updated_at                            DateTime       @default(now()) @db.Timestamp(6)
+  name                                  String?        @db.VarChar(128)
+  users_test_requests_athlete_idTousers users          @relation("test_requests_athlete_idTousers", fields: [athlete_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "test_requests_athlete_fk")
+  users_test_requests_coach_idTousers   users?         @relation("test_requests_coach_idTousers", fields: [coach_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "test_requests_coach_fk")
+  tests                                 tests?         @relation(fields: [test_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "test_requests_test_fk")
+  workout_logs                          workout_logs[]
+
+  @@index([athlete_id, status], map: "idx_test_requests_athlete")
+  @@index([coach_id, status], map: "idx_test_requests_coach")
+}
+
+model tests {
+  id            String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  coach_id      String          @db.Uuid
+  name          String          @db.VarChar(128)
+  description   String?
+  public        Boolean         @default(false)
+  created_at    DateTime        @default(now()) @db.Timestamp(6)
+  updated_at    DateTime        @default(now()) @db.Timestamp(6)
+  test_items    test_items[]
+  test_requests test_requests[]
+  users         users           @relation(fields: [coach_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "tests_coach_fk")
+
+  @@index([coach_id, created_at(sort: Desc)], map: "idx_tests_coach")
+}
+
+model tokens_blacklist {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  token      String?   @unique
+  expired_at DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model users {
+  id                                                           String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  username                                                     String                       @unique @db.VarChar(128)
+  password                                                     String?
+  first_name                                                   String?                      @db.VarChar(128)
+  last_name                                                    String?                      @db.VarChar(128)
+  email                                                        String                       @unique @db.VarChar(128)
+  phone                                                        String?                      @unique @db.VarChar(128)
+  created_at                                                   DateTime?                    @default(now()) @db.Timestamp(6)
+  updated_at                                                   DateTime?                    @default(now()) @db.Timestamp(6)
+  status                                                       user_status                  @default(INACTIVE)
+  password_expired                                             Boolean                      @default(false)
+  job_title                                                    String?
+  bio                                                          String?
+  pro_until                                                    DateTime?                    @db.Timestamp(6)
+  avatar_id                                                    String?                      @db.Uuid
+  is_coach                                                     Boolean                      @default(false)
+  website                                                      String?
+  instagram                                                    String?
+  birthday                                                     DateTime?                    @db.Date
+  search_vector                                                Unsupported("tsvector")?     @default(dbgenerated("to_tsvector('simple'::regconfig, (((((COALESCE(username, ''::character varying))::text || ' '::text) || (COALESCE(first_name, ''::character varying))::text) || ' '::text) || (COALESCE(last_name, ''::character varying))::text))"))
+  achievements_achievements_athlete_idTousers                  achievements[]               @relation("achievements_athlete_idTousers")
+  achievements_achievements_coach_idTousers                    achievements[]               @relation("achievements_coach_idTousers")
+  chat_members                                                 chat_members[]
+  chats                                                        chats[]
+  coach_applications                                           coach_applications[]
+  coach_packages                                               coach_packages[]
+  coaches                                                      coaches?
+  connection_requests_connection_requests_addressee_idTousers  connection_requests[]        @relation("connection_requests_addressee_idTousers")
+  connection_requests_connection_requests_requester_idTousers  connection_requests[]        @relation("connection_requests_requester_idTousers")
+  connections_connections_user1_idTousers                      connections[]                @relation("connections_user1_idTousers")
+  connections_connections_user2_idTousers                      connections[]                @relation("connections_user2_idTousers")
+  exercises                                                    exercises[]
+  feed_comments                                                feed_comments[]
+  feed_likes                                                   feed_likes[]
+  feeds                                                        feeds[]
+  messages                                                     messages[]
+  notifications_notifications_actor_idTousers                  notifications[]              @relation("notifications_actor_idTousers")
+  notifications_notifications_user_idTousers                   notifications[]              @relation("notifications_user_idTousers")
+  orders_orders_buyer_idTousers                                orders[]                     @relation("orders_buyer_idTousers")
+  orders_orders_coach_idTousers                                orders[]                     @relation("orders_coach_idTousers")
+  otps                                                         otps[]
+  package_subscriptions_package_subscriptions_client_idTousers package_subscriptions[]      @relation("package_subscriptions_client_idTousers")
+  package_subscriptions_package_subscriptions_coach_idTousers  package_subscriptions[]      @relation("package_subscriptions_coach_idTousers")
+  param_logs                                                   param_logs[]
+  payments                                                     payments[]
+  payout_accounts                                              payout_accounts[]
+  payouts                                                      payouts[]
+  plan_assignees_plan_assignees_assignerTousers                plan_assignees[]             @relation("plan_assignees_assignerTousers")
+  plan_assignees_plan_assignees_user_idTousers                 plan_assignees[]             @relation("plan_assignees_user_idTousers")
+  plan_schedules                                               plan_schedules[]
+  plans                                                        plans[]
+  profile_achievement_layouts                                  profile_achievement_layouts?
+  sessions                                                     sessions[]
+  test_requests_test_requests_athlete_idTousers                test_requests[]              @relation("test_requests_athlete_idTousers")
+  test_requests_test_requests_coach_idTousers                  test_requests[]              @relation("test_requests_coach_idTousers")
+  tests                                                        tests[]
+  media                                                        media?                       @relation(fields: [avatar_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  wallets                                                      wallets[]
+
+  @@index([is_coach], map: "idx_users_is_coach")
+  @@index([search_vector], map: "idx_users_search_vector", type: Gin)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model wallet_transactions {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  wallet_id    String   @db.Uuid
+  currency     String   @db.VarChar(3)
+  amount       BigInt
+  type         String   @db.VarChar(16)
+  available_at DateTime @default(now()) @db.Timestamp(6)
+  ref_type     String?  @db.VarChar(24)
+  ref_id       String?  @db.Uuid
+  description  String?
+  created_at   DateTime @default(now()) @db.Timestamp(6)
+  wallets      wallets  @relation(fields: [wallet_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "wallet_transactions_wallet_fk")
+
+  @@index([ref_type, ref_id], map: "idx_wallet_tx_ref")
+  @@index([wallet_id, available_at], map: "idx_wallet_tx_wallet")
+}
+
+model wallets {
+  id                  String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  owner_id            String?               @db.Uuid
+  currency            String                @db.VarChar(3)
+  created_at          DateTime              @default(now()) @db.Timestamp(6)
+  payments            payments[]
+  payouts             payouts[]
+  wallet_transactions wallet_transactions[]
+  users               users?                @relation(fields: [owner_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "wallets_owner_fk")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model workout_logs {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id        String?             @db.Uuid
+  exercise_id       String?             @db.Uuid
+  exercise_name     String?             @db.VarChar(255)
+  set_number        Int
+  reps              Int?
+  weight            Decimal?            @db.Decimal(10, 2)
+  rpe               Decimal?            @db.Decimal(3, 1)
+  duration_seconds  Int?
+  grade             String?             @db.VarChar(10)
+  completed         Boolean?            @default(false)
+  attempts          Int?
+  notes             String?
+  logged_at         DateTime            @default(now()) @db.Timestamp(6)
+  created_at        DateTime            @default(now()) @db.Timestamp(6)
+  test_request_id   String?             @db.Uuid
+  exercises         exercises?          @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sessions          sessions?           @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  test_requests     test_requests?      @relation(fields: [test_request_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "workout_logs_test_request_fk")
+  workout_logs_tags workout_logs_tags[]
+
+  @@index([exercise_id], map: "idx_workout_logs_exercise_id")
+  @@index([logged_at], map: "idx_workout_logs_logged_at")
+  @@index([session_id], map: "idx_workout_logs_session_id")
+  @@index([test_request_id], map: "idx_workout_logs_test_request")
+}
+
+model workout_logs_tags {
+  workout_log_id String       @db.Uuid
+  tag_id         String       @db.Uuid
+  created_at     DateTime     @default(now()) @db.Timestamp(6)
+  tags           tags         @relation(fields: [tag_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workout_logs   workout_logs @relation(fields: [workout_log_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([workout_log_id, tag_id])
+  @@index([tag_id], map: "idx_workout_logs_tags_tag_id")
+  @@index([workout_log_id], map: "idx_workout_logs_tags_workout_log_id")
+}
+
+model admin_audit_log {
+  id            String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  admin_user_id String      @db.Uuid
+  action        String
+  resource      String
+  resource_id   String?
+  detail        Json?
+  created_at    DateTime    @default(now()) @db.Timestamp(6)
+  admin_users   admin_users @relation(fields: [admin_user_id], references: [id], onUpdate: NoAction, map: "admin_audit_log_admin_fk")
+
+  @@index([created_at(sort: Desc)], map: "idx_admin_audit_log_created")
+  @@index([resource, resource_id], map: "idx_admin_audit_log_resource")
+}
+
+model admin_migrations {
+  name       String   @id
+  applied_at DateTime @default(now()) @db.Timestamp(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model admin_users {
+  id              String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email           String            @unique(map: "admin_users_email_uniq")
+  password_hash   String
+  name            String?
+  role            String            @default("ADMIN") @db.VarChar(16)
+  is_active       Boolean           @default(true)
+  last_login_at   DateTime?         @db.Timestamp(6)
+  created_at      DateTime          @default(now()) @db.Timestamp(6)
+  updated_at      DateTime          @default(now()) @db.Timestamp(6)
+  admin_audit_log admin_audit_log[]
+}
+
+enum exercise_sport_type {
+  STRENGTH
+  CLIMBING
+  CARDIO
+  MOBILITY
+  GENERAL
+}
+
+enum otp_perposes {
+  AUTH
+  FORGET_PASSWORD
+}
+
+enum plan_schedule_status {
+  ACTIVE
+  CANCELED
+}
+
+enum sides {
+  LEFT
+  RIGHT
+  GENERAL
+}
+
+enum sports {
+  FITNESS
+  CLIMBING
+  THERAPEUTIC
+}
+
+enum units {
+  KG
+  CM
+  SECOND
+  COUNT
+}
+
+enum user_status {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
