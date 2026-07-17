@@ -1,7 +1,7 @@
 // Must come first: it validates and cleans DATABASE_URL before db.js constructs
 // the Prisma client and before the session store opens a pool.
 import { DATABASE_URL, ADMIN_COOKIE_SECRET, PORT } from './env.js';
-import AdminJS from 'adminjs';
+import AdminJS, { ComponentLoader } from 'adminjs';
 import AdminJSExpress from '@adminjs/express';
 import * as AdminJSPrisma from '@adminjs/prisma';
 import connectPgSimple from 'connect-pg-simple';
@@ -25,9 +25,20 @@ AdminJS.registerAdapter({
 
 if (!ADMIN_COOKIE_SECRET) throw new Error('ADMIN_COOKIE_SECRET is not set.');
 
+// Register the one custom UI component: the inline support-ticket reply box.
+// AdminJS bundles it at startup (the "bundling user components" log line).
+const componentLoader = new ComponentLoader();
+const Components = {
+  SupportReply: componentLoader.add(
+    'SupportReply',
+    join(dirname(fileURLToPath(import.meta.url)), 'components', 'support-reply'),
+  ),
+};
+
 const admin = new AdminJS({
   rootPath: '/admin',
-  resources: buildResources(),
+  componentLoader,
+  resources: buildResources(Components),
   branding,
   assets: {
     styles: ['/admin/assets/admin.css'],
@@ -57,6 +68,14 @@ const admin = new AdminJS({
     },
   },
 });
+
+// Bundle the one custom UI component (the ticket reply box) with esbuild, once,
+// at startup. AdminJS serves an empty component bundle otherwise, and the reply
+// action falls back to "implement the component". watch() also re-bundles on
+// change, which is harmless for a low-traffic internal tool; it needs no build
+// step in the image and /app is writable by the runtime user. Top-level await is
+// fine — this file is an ES module.
+await admin.watch();
 
 // Sessions live in Postgres, not in memory: an admin should not be logged out
 // every time the process restarts, and this has to survive running more than one

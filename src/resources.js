@@ -4,6 +4,7 @@ import { prisma } from './db.js';
 import { payoutActions } from './actions/payouts.js';
 import { softDeleteAction } from './actions/soft-delete.js';
 import { beforeSaveHashPassword } from './actions/admin-users.js';
+import { supportActions } from './actions/support.js';
 
 // Money tables are LIST/SHOW only.
 //
@@ -82,6 +83,7 @@ const NAV = {
     'chat_members',
     'notifications',
   ],
+  Support: ['support_tickets', 'support_messages'],
   System: ['admin_users', 'admin_audit_log', 'platform_settings'],
 };
 
@@ -136,7 +138,7 @@ function propertiesFor(model, { readOnly, softDelete }) {
   return properties;
 }
 
-export function buildResources() {
+export function buildResources(Components = {}) {
   const models = Prisma.dmmf.datamodel.models.filter((m) => !HIDDEN.has(m.name));
 
   return models.map((model) => {
@@ -173,6 +175,28 @@ export function buildResources() {
     }
 
     if (model.name === 'admin_audit_log') {
+      actions.new = { isAccessible: false };
+      actions.edit = { isAccessible: false };
+      actions.delete = { isAccessible: false };
+      actions.bulkDelete = { isAccessible: false };
+    }
+
+    if (model.name === 'support_tickets') {
+      // Tickets are opened by users, never in the panel. Admins browse them and
+      // act through Reply / Close, which keep the turn and delivery invariants.
+      actions.new = { isAccessible: false };
+      actions.edit = { isAccessible: false };
+      actions.delete = { isAccessible: false };
+      actions.bulkDelete = { isAccessible: false };
+      const { reply, close } = supportActions();
+      actions.reply = { ...reply, component: Components.SupportReply };
+      actions.close = close;
+    }
+
+    if (model.name === 'support_messages') {
+      // The thread is written by the user (API) and the Reply action, never by
+      // hand — a raw insert here would bypass the turn flip and the worker's
+      // delivery flag.
       actions.new = { isAccessible: false };
       actions.edit = { isAccessible: false };
       actions.delete = { isAccessible: false };
